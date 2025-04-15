@@ -1,0 +1,647 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Pixi Live2D Demo with Natural Sway</title>
+  <script src="./js/pixi.js@7.4.0/pixi.min.js"></script>
+  <script src="./js/live2dcubismcore/live2dcubismcore.min.js"></script>
+  <script src="./js/pixi-live2d-display-lipsyncpatch@0.5.0-ls-7_cubism4/cubism4.min.js"></script>
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+    }
+    #canvas {
+      width: 100vw;
+      height: 100vh;
+      position: absolute;
+      top: 0;
+      left: 0;
+      cursor: move;
+      touch-action: none;
+      user-select: none;
+      z-index: 1;
+    }
+    button {
+      position: fixed;
+      z-index: 20;
+      padding: 8px 12px;
+      background: rgba(0, 0, 0, 0.8);
+      color: white;
+      border: 1px solid white;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: clamp(12px, 2vw, 14px);
+      pointer-events: auto;
+    }
+    button:hover {
+      background: rgba(0, 0, 0, 1);
+    }
+    #exprButtons {
+      left: 10px;
+      right: auto;
+    }
+    #exprButtons button:nth-child(1) { top: 10px; }
+    #exprButtons button:nth-child(2) { top: 50px; }
+    #exprButtons button:nth-child(3) { top: 90px; }
+    #windControls {
+      position: fixed;
+      right: 10px;
+      left: auto;
+      top: 130px;
+      z-index: 20;
+    }
+    #windControls button:nth-child(1) { top: 0; }
+    #windControls button:nth-child(2) { top: 40px; }
+    #windControls button:nth-child(3) { top: 80px; }
+    #error {
+      position: fixed;
+      top: 250px;
+      right: 10px;
+      color: orange;
+      font-family: Arial, sans-serif;
+      max-width: 400px;
+      z-index: 15;
+    }
+    #debug {
+      position: fixed;
+      top: 290px;
+      right: 10px;
+      color: white;
+      font-family: Arial, sans-serif;
+      max-width: 400px;
+      z-index: 15;
+    }
+  </style>
+</head>
+<body>
+  <div id="exprButtons">
+    <button id="legSwitchBtn">腿切换</button>
+    <button id="handSwitchBtn">手姿势切换</button>
+    <button id="resetBtn">重置模型</button>
+  </div>
+  <div id="windControls">
+    <button id="windLeftBtn">风向左</button>
+    <button id="windRightBtn">风向右</button>
+    <button id="windStopBtn">停止风力</button>
+  </div>
+  <div id="error">物理模拟模式（全组件支持）</div>
+  <div id="debug"></div>
+  <canvas id="canvas"></canvas>
+  <script>
+    (async () => {
+      // 物理参数映射（更新 PhysicsSetting8 为 Param252）
+      const physicsParams = {
+        'PhysicsSetting1': ['ParamAngleX'],
+        'PhysicsSetting2': ['ParamAngleY'],
+        'PhysicsSetting3': ['ParamAngleZ'],
+        'PhysicsSetting4': ['ParamBodyAngleZ'],
+        'PhysicsSetting5': ['ParamBodyAngleZ'],
+        'PhysicsSetting6': ['ParamBodyAngleX'],
+        'PhysicsSetting7': ['ParamBodyAngleX'],
+        'PhysicsSetting8': ['Param252'], // 从 Param110 改为 Param252
+        'PhysicsSetting9': ['Param13'],
+        'PhysicsSetting10': ['Param13'],
+        'PhysicsSetting11': ['ParamSideHairXZ'],
+        'PhysicsSetting12': ['ParamSideHairY'],
+        'PhysicsSetting13': ['ParamSideHairRXZ'],
+        'PhysicsSetting14': ['ParamSideHairRY'],
+        'PhysicsSetting15': ['ParamBackHairRXZ'],
+        'PhysicsSetting16': ['ParamBackHairRY'],
+        'PhysicsSetting17': ['ParamAccessoryXZ'],
+        'PhysicsSetting18': ['ParamAccessoryY'],
+        'PhysicsSetting19': ['ParamAccessory'],
+        'PhysicsSetting20': ['Param59'],
+        'PhysicsSetting21': ['Param59'],
+        'PhysicsSetting22': ['ParamTwinTailY'],
+        'PhysicsSetting23': ['ParamTwinTailYR'],
+        'PhysicsSetting24': ['ParamBigRibbonXZ'],
+        'PhysicsSetting25': ['ParamBigRibbonLXZ'],
+        'PhysicsSetting26': ['Param90'],
+        'PhysicsSetting27': ['Param90'],
+        'PhysicsSetting28': ['Param98'],
+        'PhysicsSetting29': ['ParamBackSkirtXZ'],
+        'PhysicsSetting30': ['ParamBackSkirtY'],
+        'PhysicsSetting31': [],
+        'PhysicsSetting32': [],
+        'PhysicsSetting33': [],
+        'PhysicsSetting34': []
+      };
+
+      const canvas = document.getElementById('canvas');
+      const app = new PIXI.Application({
+        view: canvas,
+        autoStart: true,
+        width: window.innerWidth,
+        height: window.innerHeight,
+        backgroundColor: 0x000000,
+        resizeTo: window
+      });
+      app.ticker.maxFPS = 60;
+
+      let model;
+
+      try {
+        const modelUrl = './your-model/Sparkle/Sparkle.model3.json';
+        console.log('模型加载开始:', modelUrl);
+        model = await PIXI.live2d.Live2DModel.from(modelUrl);
+
+        app.stage.addChild(model);
+
+        model.x = app.screen.width / 2;
+        model.y = app.screen.height;
+        model.scale.set(0.1);
+        model.anchor.set(0.5, 1);
+        model.interactive = false;
+        app.stage.interactive = false;
+
+        console.log('模型加载成功:', model);
+        console.log('内部模型:', model.internalModel);
+        console.log('模型设置:', model.internalModel.settings);
+
+        initPhysicsSimulation(model);
+        initEyeTracking(model);
+        initCanvasDrag(model);
+        initExpressionButtons(model);
+        initWindControls(model);
+        initAutoBlink(model);
+        initBodyTracking(model);
+        initNaturalSway(model);
+      } catch (error) {
+        showError(`模型加载失败: ${error.message}`);
+        console.error('加载错误详情:', error);
+      }
+
+      function initPhysicsSimulation(model) {
+        try {
+          const debugOutput = [];
+          Object.keys(physicsParams).forEach(settingId => {
+            physicsParams[settingId].forEach(paramId => {
+              if (!paramId) return;
+              const index = model.internalModel.coreModel.getParameterIndex(paramId);
+              if (index === -1) {
+                console.warn(`参数 ${paramId} (用于 ${settingId}) 不存在，可能影响物理效果`);
+                showError(`参数 ${paramId} 缺失，可能无 ${settingId} 效果`);
+              } else {
+                console.log(`参数 ${paramId} 可用，索引: ${index}，用于 ${settingId}`);
+                debugOutput.push(`${settingId} (${paramId}): OK`);
+              }
+            });
+          });
+
+          model.on('update', () => {
+            const debug = [
+              'Param13',
+              'Param59',
+              'Param98',
+              'ParamEyeLOpen',
+              'ParamBodyAngleX',
+              'ParamBodyAngleX2',
+              'Param252' // 从 Param110 改为 Param252
+            ].map(id => {
+              const index = model.internalModel.coreModel.getParameterIndex(id);
+              return index !== -1 ? `${id}: ${model.internalModel.coreModel.getParameterValueByIndex(id).toFixed(2)}` : '';
+            }).filter(Boolean);
+            document.getElementById('debug').textContent = debug.join('\n');
+          });
+
+          console.log('物理模拟模式已启用（全组件支持）');
+        } catch (error) {
+          console.error('物理初始化失败:', error);
+          showError(`物理初始化失败: ${error.message}`);
+        }
+      }
+
+      function initEyeTracking(model) {
+        const canvas = document.getElementById('canvas');
+
+        function updateEyes(event) {
+          const rect = canvas.getBoundingClientRect();
+          const x = (event.clientX || event.touches?.[0]?.clientX || rect.width / 2) - rect.left;
+          const y = (event.clientY || event.touches?.[0]?.clientY || rect.height / 2) - rect.top;
+
+          const centerX = rect.width / 2;
+          const centerY = rect.height / 2;
+          const eyeX = (x - centerX) / centerX;
+          const eyeY = (y - centerY) / centerY;
+
+          const eyeParams = ['ParamEyeBallX', 'ParamEyeBallY'];
+          eyeParams.forEach(paramId => {
+            const index = model.internalModel.coreModel.getParameterIndex(paramId);
+            if (index !== -1) {
+              const maxValue = model.internalModel.coreModel.getParameterMaximumValue(index);
+              const minValue = model.internalModel.coreModel.getParameterMinimumValue(index);
+              const value = paramId.includes('X') ? eyeX : -eyeY;
+              const newValue = value * maxValue;
+              model.internalModel.coreModel.setParameterValueByIndex(index, newValue);
+            } else {
+              console.warn(`眼动参数 ${paramId} 不存在`);
+            }
+          });
+        }
+
+        canvas.addEventListener('mousemove', updateEyes);
+        canvas.addEventListener('touchmove', updateEyes, { passive: true });
+      }
+
+      function initAutoBlink(model) {
+        const eyeParams = ['ParamEyeLOpen', 'ParamEyeROpen'];
+        const indices = eyeParams.map(paramId => model.internalModel.coreModel.getParameterIndex(paramId));
+        if (indices.some(index => index === -1)) {
+          console.warn('眨眼参数缺失，可能无自动眨眼效果');
+          showError('缺少 ParamEyeLOpen 或 ParamEyeROpen，无眨眼效果');
+          return;
+        }
+
+        let eyeValue = 1;
+        let isBlinking = false;
+        let blinkPhase = 'idle';
+
+        app.ticker.add(() => {
+          if (blinkPhase === 'closing') {
+            eyeValue = Math.max(0, eyeValue - 0.1);
+            if (eyeValue === 0) {
+              blinkPhase = 'closed';
+              setTimeout(() => {
+                blinkPhase = 'opening';
+              }, 50);
+            }
+          } else if (blinkPhase === 'opening') {
+            eyeValue = Math.min(1, eyeValue + 0.1);
+            if (eyeValue === 1) {
+              blinkPhase = 'idle';
+            }
+          }
+          indices.forEach(index => {
+            model.internalModel.coreModel.setParameterValueByIndex(index, eyeValue);
+          });
+        });
+
+        function startBlink() {
+          if (blinkPhase === 'idle') {
+            blinkPhase = 'closing';
+            isBlinking = true;
+          }
+          const nextBlink = 3000 + Math.random() * 3000;
+          setTimeout(startBlink, nextBlink);
+        }
+
+        setTimeout(startBlink, 2000);
+        console.log('平滑自动眨眼已启用');
+      }
+
+      function initBodyTracking(model) {
+        const canvas = document.getElementById('canvas');
+
+        function updateBody(event) {
+          const rect = canvas.getBoundingClientRect();
+          const x = (event.clientX || event.touches?.[0]?.clientX || rect.width / 2) - rect.left;
+          const y = (event.clientY || event.touches?.[0]?.clientY || rect.height / 2) - rect.top;
+
+          const centerX = rect.width / 2;
+          const centerY = rect.height / 2;
+          const normalizedX = (x - centerX) / centerX;
+          const normalizedY = (y - centerY) / centerY;
+
+          const bodyParams = ['ParamBodyAngleX2', 'ParamBodyAngleX', 'Param252']; // 替换 Param110 为 Param252
+          bodyParams.forEach(paramId => {
+            const index = model.internalModel.coreModel.getParameterIndex(paramId);
+            if (index !== -1) {
+              const maxValue = model.internalModel.coreModel.getParameterMaximumValue(index);
+              const minValue = model.internalModel.coreModel.getParameterMinimumValue(index);
+              const currentValue = model.internalModel.coreModel.getParameterValueByIndex(index);
+
+              let targetValue;
+              if (paramId.includes('X')) {
+                targetValue = normalizedX * maxValue * 0.5; // X轴幅度50%
+              } else if (paramId === 'Param252') { // 明确指定 Param252
+                targetValue = -normalizedY * maxValue * 0.3; // Y轴幅度30%
+              }
+
+              const lerpFactor = 0.1;
+              const newValue = currentValue + (targetValue - currentValue) * lerpFactor;
+
+              model.internalModel.coreModel.setParameterValueByIndex(
+                index,
+                Math.max(minValue, Math.min(maxValue, newValue))
+              );
+            } else {
+              console.warn(`身体追踪参数 ${paramId} 不存在`);
+            }
+          });
+        }
+
+        canvas.addEventListener('mousemove', updateBody);
+        canvas.addEventListener('touchmove', updateBody, { passive: true });
+
+        const bodyParams = ['ParamBodyAngleX2', 'ParamBodyAngleX', 'Param252']; // 替换 Param110 为 Param252
+        bodyParams.forEach(paramId => {
+          const index = model.internalModel.coreModel.getParameterIndex(paramId);
+          if (index !== -1) {
+            model.internalModel.coreModel.setParameterValueByIndex(index, 0);
+          }
+        });
+
+        console.log('身体追踪已启用（鼠标跟随，含X和Y轴）');
+      }
+
+      function initNaturalSway(model) {
+        let lastInteraction = Date.now();
+        let isInteracting = false;
+
+        function markInteraction() {
+          isInteracting = true;
+          lastInteraction = Date.now();
+          setTimeout(() => {
+            if (Date.now() - lastInteraction >= 1000) {
+              isInteracting = false;
+            }
+          }, 1000);
+        }
+
+        app.ticker.add(() => {
+          if (isInteracting) return;
+
+          const swayParams = [
+            { id: 'Param13', period: 2000, amplitude: 0.1 },
+            { id: 'Param59', period: 2500, amplitude: 0.1 },
+            { id: 'Param98', period: 3000, amplitude: 0.15 },
+            { id: 'ParamBodyAngleX', period: 4000, amplitude: 0.05 },
+            { id: 'Param252', period: 4000, amplitude: 0.05 } // 替换 Param110 为 Param252
+          ];
+
+          swayParams.forEach(param => {
+            const index = model.internalModel.coreModel.getParameterIndex(param.id);
+            if (index !== -1) {
+              const maxValue = model.internalModel.coreModel.getParameterMaximumValue(index);
+              const minValue = model.internalModel.coreModel.getParameterMinimumValue(index);
+              const currentValue = model.internalModel.coreModel.getParameterValueByIndex(index);
+              const swayValue = Math.sin(Date.now() / param.period) * maxValue * param.amplitude;
+              const newValue = currentValue + swayValue * 0.3;
+              model.internalModel.coreModel.setParameterValueByIndex(index, Math.max(minValue, Math.min(maxValue, newValue)));
+            }
+          });
+        });
+
+        canvas.addEventListener('pointerdown', markInteraction);
+        document.getElementById('windLeftBtn').addEventListener('click', markInteraction);
+        document.getElementById('windRightBtn').addEventListener('click', markInteraction);
+        document.getElementById('windStopBtn').addEventListener('click', markInteraction);
+
+        console.log('自然摆动已启用');
+      }
+
+      function initCanvasDrag(model) {
+        const canvas = document.getElementById('canvas');
+        let isDragging = false;
+        let prevX, prevY;
+        let velocityX = 0;
+        let velocityY = 0;
+
+        function startDrag(event) {
+          event.preventDefault();
+          event.stopPropagation();
+          isDragging = true;
+          prevX = event.clientX || event.touches?.[0]?.clientX;
+          prevY = event.clientY || event.touches?.[0]?.clientY;
+          console.log('模型拖动开始');
+        }
+
+        function moveDrag(event) {
+          if (isDragging) {
+            event.preventDefault();
+            event.stopPropagation();
+            const clientX = event.clientX || event.touches?.[0]?.clientX;
+            const clientY = event.clientY || event.touches?.[0]?.clientY;
+            const deltaX = clientX - prevX;
+            const deltaY = clientY - prevY;
+
+            model.x += deltaX;
+            model.y += deltaY;
+
+            const margin = Math.min(app.screen.width, app.screen.height) * 0.1;
+            model.x = Math.max(margin, Math.min(app.screen.width - margin, model.x));
+            model.y = Math.max(margin, Math.min(app.screen.height - margin, model.y));
+
+            velocityX = deltaX * 1.0;
+            velocityY = deltaY * 1.0;
+
+            Object.keys(physicsParams).forEach(settingId => {
+              physicsParams[settingId].forEach(paramId => {
+                if (!paramId) return;
+                const index = model.internalModel.coreModel.getParameterIndex(paramId);
+                if (index !== -1) {
+                  const currentValue = model.internalModel.coreModel.getParameterValueByIndex(index);
+                  const maxValue = model.internalModel.coreModel.getParameterMaximumValue(index);
+                  const minValue = model.internalModel.coreModel.getParameterMinimumValue(index);
+                  const defaultValue = model.internalModel.coreModel.getParameterDefaultValue(index);
+                  let newValue = currentValue;
+                  if (settingId.includes('XZ') || settingId.includes('X') || settingId.includes('Z')) {
+                    newValue += velocityX * (1 + Math.abs(deltaX) * 0.02);
+                  } else if (settingId.includes('Y') || paramId === 'Param252') { // 替换 Param110 为 Param252
+                    newValue += velocityY * (1 + Math.abs(deltaY) * 0.02);
+                  }
+                  if (settingId.includes('裙子') || settingId.includes('双马尾') || settingId.includes('刘海')) {
+                    newValue *= 3.0;
+                  }
+                  newValue = Math.max(minValue, Math.min(maxValue, newValue));
+                  model.internalModel.coreModel.setParameterValueByIndex(index, newValue);
+                  if (!isDragging) {
+                    newValue += (defaultValue - newValue) * 0.1;
+                    newValue = Math.max(minValue, Math.min(maxValue, newValue));
+                    model.internalModel.coreModel.setParameterValueByIndex(index, newValue);
+                  }
+                }
+              });
+            });
+
+            prevX = clientX;
+            prevY = clientY;
+          }
+        }
+
+        function endDrag(event) {
+          event.preventDefault();
+          event.stopPropagation();
+          isDragging = false;
+          console.log('模型拖动结束');
+          app.ticker.add((delta) => {
+            if (!isDragging && (Math.abs(velocityX) > 0.01 || Math.abs(velocityY) > 0.01)) {
+              velocityX *= 0.9;
+              velocityY *= 0.9;
+
+              Object.keys(physicsParams).forEach(settingId => {
+                physicsParams[settingId].forEach(paramId => {
+                  if (!paramId) return;
+                  const index = model.internalModel.coreModel.getParameterIndex(paramId);
+                  if (index !== -1) {
+                    const currentValue = model.internalModel.coreModel.getParameterValueByIndex(index);
+                    const maxValue = model.internalModel.coreModel.getParameterMaximumValue(index);
+                    const minValue = model.internalModel.coreModel.getParameterMinimumValue(index);
+                    const defaultValue = model.internalModel.coreModel.getParameterDefaultValue(index);
+                    let newValue = currentValue;
+                    if (settingId.includes('XZ') || settingId.includes('X') || settingId.includes('Z')) {
+                      newValue += velocityX;
+                    } else if (settingId.includes('Y') || paramId === 'Param252') { // 替换 Param110 为 Param252
+                      newValue += velocityY;
+                    }
+                    if (settingId.includes('裙子') || settingId.includes('双马尾') || settingId.includes('刘海')) {
+                      newValue *= 3.0;
+                    }
+                    newValue = Math.max(minValue, Math.min(maxValue, newValue));
+                    model.internalModel.coreModel.setParameterValueByIndex(index, newValue);
+                    newValue += (defaultValue - newValue) * 0.1;
+                    newValue = Math.max(minValue, Math.min(maxValue, newValue));
+                    model.internalModel.coreModel.setParameterValueByIndex(index, newValue);
+                  }
+                });
+              });
+            }
+          });
+        }
+
+        canvas.addEventListener('pointerdown', startDrag, { passive: false });
+        canvas.addEventListener('pointermove', moveDrag, { passive: false });
+        canvas.addEventListener('pointerup', endDrag, { passive: false });
+        canvas.addEventListener('pointerupoutside', endDrag, { passive: false });
+
+        canvas.addEventListener('touchstart', startDrag, { passive: false });
+        canvas.addEventListener('touchmove', moveDrag, { passive: false });
+        canvas.addEventListener('touchend', endDrag, { passive: false });
+        canvas.addEventListener('touchcancel', endDrag, { passive: false });
+      }
+
+      function initWindControls(model) {
+        const windLeftBtn = document.getElementById('windLeftBtn');
+        const windRightBtn = document.getElementById('windRightBtn');
+        const windStopBtn = document.getElementById('windStopBtn');
+
+        let windForce = 0;
+        let targetWindForce = 0;
+
+        function applyWind() {
+          windForce += (targetWindForce - windForce) * 0.1;
+          if (Math.abs(windForce) > 0.01) {
+            windForce += (Math.random() - 0.5) * 0.1;
+          }
+
+          Object.keys(physicsParams).forEach(settingId => {
+            physicsParams[settingId].forEach(paramId => {
+              if (!paramId) return;
+              const index = model.internalModel.coreModel.getParameterIndex(paramId);
+              if (index !== -1) {
+                const maxValue = model.internalModel.coreModel.getParameterMaximumValue(index);
+                const minValue = model.internalModel.coreModel.getParameterMinimumValue(index);
+                const defaultValue = model.internalModel.coreModel.getParameterDefaultValue(index);
+                let windValue = windForce * 22;
+                if (settingId.includes('裙子') || settingId.includes('双马尾') || settingId.includes('刘海')) {
+                  windValue *= 3.0;
+                }
+                const newValue = Math.max(minValue, Math.min(maxValue, windValue));
+                model.internalModel.coreModel.setParameterValueByIndex(index, newValue);
+                if (Math.abs(windForce) < 0.01) {
+                  const currentValue = model.internalModel.coreModel.getParameterValueByIndex(index);
+                  const resetValue = currentValue + (defaultValue - currentValue) * 0.1;
+                  model.internalModel.coreModel.setParameterValueByIndex(index, resetValue);
+                }
+              }
+            });
+          });
+        }
+
+        windLeftBtn.addEventListener('click', () => {
+          targetWindForce = -0.5;
+          console.log('风向左:', targetWindForce);
+        });
+
+        windRightBtn.addEventListener('click', () => {
+          targetWindForce = 0.5;
+          console.log('风向右:', targetWindForce);
+        });
+
+        windStopBtn.addEventListener('click', () => {
+          targetWindForce = 0;
+          console.log('停止风力');
+        });
+
+        model.on('update', () => {
+          if (Math.abs(windForce) > 0.01 || Math.abs(targetWindForce) > 0.01) {
+            applyWind();
+          }
+        });
+      }
+
+      function initExpressionButtons(model) {
+        const expressionFiles = {
+          '腿切换': '腿切换.exp3.json',
+          '手姿势切换': '手姿势切换.exp3.json',
+          '重置': '重置.exp3.json'
+        };
+
+        async function applyExpression(expressionName) {
+          try {
+            const expFile = expressionFiles[expressionName];
+            if (!expFile) {
+              throw new Error(`表情 "${expressionName}" 未定义`);
+            }
+
+            const expFilePath = `./your-model/Sparkle/${expFile}`;
+            const response = await fetch(expFilePath);
+            if (!response.ok) {
+              throw new Error(`加载表情文件失败: ${expFilePath}`);
+            }
+            const expData = await response.json();
+
+            if (!expData.Parameters) {
+              throw new Error(`表情文件格式错误: ${expFile}`);
+            }
+
+            expData.Parameters.forEach(param => {
+              const paramIndex = model.internalModel.coreModel.getParameterIndex(param.Id);
+              if (paramIndex !== -1) {
+                const currentValue = model.internalModel.coreModel.getParameterValueByIndex(paramIndex);
+                const newValue = param.Blend === 'Add' ? currentValue + param.Value : param.Value;
+                model.internalModel.coreModel.setParameterValueByIndex(paramIndex, newValue);
+                console.log(`设置参数 ${param.Id} = ${newValue} (Blend: ${param.Blend || 'set'})`);
+              } else {
+                showError(`参数 ${param.Id} 不存在于模型`);
+              }
+            });
+
+            console.log(`触发表情 "${expressionName}"`);
+          } catch (error) {
+            showError(`设置表情 "${expressionName}" 失败: ${error.message}`);
+          }
+        }
+
+        document.getElementById('legSwitchBtn').addEventListener('click', () => {
+          applyExpression('腿切换');
+        });
+
+        document.getElementById('handSwitchBtn').addEventListener('click', () => {
+          applyExpression('手姿势切换');
+        });
+
+        document.getElementById('resetBtn').addEventListener('click', () => {
+          applyExpression('重置');
+        });
+      }
+
+      function showError(message) {
+        const errorDiv = document.getElementById('error');
+        errorDiv.textContent = message;
+        console.error(message);
+      }
+
+      window.addEventListener('resize', () => {
+        app.renderer.resize(window.innerWidth, window.innerHeight);
+        if (model) {
+          const margin = Math.min(app.screen.width, app.screen.height) * 0.1;
+          model.x = Math.max(margin, Math.min(app.screen.width - margin, model.x));
+          model.y = Math.max(margin, Math.min(app.screen.height - margin, model.y));
+        }
+      });
+    })();
+  </script>
+</body>
+</html>
