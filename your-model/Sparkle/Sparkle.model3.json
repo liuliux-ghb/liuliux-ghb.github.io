@@ -1,0 +1,46 @@
+{
+	"Version": 3,
+	"FileReferences": {
+		"Moc": "Sparkle.moc3",
+		"Textures": [
+			"Sparkle.4096/texture_00.png",
+			"Sparkle.4096/texture_01.png",
+			"Sparkle.4096/texture_02.png",
+			"Sparkle.4096/texture_03.png",
+			"Sparkle.4096/texture_04.png",
+			"Sparkle.4096/texture_05.png"
+		],
+		"Physics": "Sparkle.physics3.json",
+		"DisplayInfo": "Sparkle.cdi3.json",
+		"Expressions": [
+			{
+				"Name": "重置",
+				"File": "重置.exp3.json"
+			},
+			{
+				"Name": "高光隐藏",
+				"File": "高光隐藏.exp3.json"
+			},
+			{
+				"Name": "手姿势切换",
+				"File": "手姿势切换.exp3.json"
+			},
+			{
+				"Name": "腿切换",
+				"File": "腿切换.exp3.json"
+			}
+		]
+	},
+	"Groups": [
+		{
+			"Target": "Parameter",
+			"Name": "LipSync",
+			"Ids": []
+		},
+		{
+			"Target": "Parameter",
+			"Name": "EyeBlink",
+			"Ids": []
+		}
+	]
+}
